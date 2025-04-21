@@ -19,19 +19,34 @@ def parse_rating(raw_rating):
         return full_stars + half_star
     return None  # No rating found
 
-def fetch_page(session, url):
+def scrape_user_ratings_page(session, url):
     """
-    Fetches and parses a single Letterboxd page to extract film data.
-    
-    Arguments:
-    - session: A persistent requests.Session() object for efficient HTTP requests.
-    - url: The URL of the page to scrape.
-    - page_number: The current page number being processed.
+    Parses a single Letterboxd 'watched films' page to extract film metadata.
+
+    Expects HTML structure like:
+    <li class="poster-container film-watched">
+        <div class="film-poster" data-film-slug="nosferatu-2024" data-film-id="35995" ...>
+        ...
+        <p class="poster-viewingdata">
+            <span class="rating rated-8">★★★★</span>
+        </p>
+    </li>
+
+    Extracts:
+    - film_slug (e.g. 'nosferatu-2024')
+    - film_id (e.g. '35995')
+    - rating (e.g. 4.0, converted from star symbols)
+
+    Args:
+        session (requests.Session): Persistent HTTP session
+        url (str): URL of the film listing page
 
     Returns:
-    - A list of films on the page, each as a list of [film_name, film_id, rating].
-    - Returns None if no films are found on the page (used for detecting the end).
+        list[list]: List of [film_slug, film_id, rating] triples
+                    Returns None if the page is empty or invalid
+
     """
+
     response = session.get(url)
 
     # If the page is invalid (e.g., non-existent), return None
@@ -66,7 +81,7 @@ def fetch_page(session, url):
 
     return page_film_data  # Return extracted films for this page
 
-def scrape_letterboxd_in_parallel(username, max_workers=5, batch_size=5):
+def scrape_user_ratings_pages_in_parallel(username, max_workers=5, batch_size=5):
     """
     Scrapes a Letterboxd user's watched films efficiently using parallel processing.
 
@@ -103,7 +118,7 @@ def scrape_letterboxd_in_parallel(username, max_workers=5, batch_size=5):
             # This loop submits up to `batch_size` requests at once
             for _ in range(batch_size):
                 url = f"{base_url}page/{page_number}/"  # Construct the URL for the current page
-                future = executor.submit(fetch_page, session, url)  # Submit request to run in parallel
+                future = executor.submit(scrape_user_ratings_page, session, url)  # Submit request to run in parallel
                 futures[future] = page_number  # Store the future along with its corresponding page number
                 page_number += 1  # Move to the next page
 
@@ -127,7 +142,7 @@ def scrape_letterboxd_in_parallel(username, max_workers=5, batch_size=5):
     # Close the session to free up resources
     session.close()
 
-    df = pd.DataFrame(film_data, columns=["film_title", "film_id", "rating"])
+    df = pd.DataFrame(film_data, columns=["film_slug", "film_id", "rating"])
 
     # Print summary of execution time and number of films processed
     end_time = time.time()

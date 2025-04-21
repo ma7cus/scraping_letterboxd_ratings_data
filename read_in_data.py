@@ -1,147 +1,130 @@
+from datetime import datetime  
 import pandas as pd
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from fetch_ratings import scrape_letterboxd_in_parallel
+from fetch_ratings import scrape_user_ratings_pages_in_parallel
 import os
+import time
+import threading
 
-def process_user_data(user_id, user_id_mapping, film_id_mapping):
+def scrape_and_encode_user_ratings(user_string, user_id_map, film_id_map, max_user_id_lock):
     """
-    Fetches a user's Letterboxd ratings and ensures consistent data formatting.
+    Fetches a user's Letterboxd ratings and outputs a data frame with the film names and user name assigned unique numeric IDs.
+    The mappings for these IDs are also updated in the user_id_mapping and film_id_mapping dictionaries.
 
     Arguments:
-    - user_id (str): The Letterboxd username.
-    - user_id_mapping (dict): A dictionary tracking assigned numeric user IDs.
-    - film_id_mapping (dict): A dictionary mapping film_id → film_title.
+    - user_string (str): The Letterboxd username.
+    - user_id_mapping (dict): Dictionary mapping username → numeric user_id.
+    - film_id_mapping (dict): Dictionary mapping film_id → film_title.
+    - max_user_id_lock (threading.Lock): Thread lock to safely update max_user_id.
 
     Returns:
-    - df_processed (DataFrame): A DataFrame containing (numeric_user_id, film_id, rating).
-    - new_film_mappings (dict): A dictionary containing new film_id → film_title mappings found during this user’s processing.
+    - df_id_assigned_values (DataFrame): DataFrame containing (numeric_user_id, film_id, rating).
+    - new_film_mappings (dict): Dictionary containing new film_id → film_title mappings.
     - updated_user_mapping (dict): Updated dictionary mapping username → numeric user_id.
+    - max_user_id (int): Updated maximum numeric user ID.
     """
 
     # Fetch user ratings from Letterboxd
-    df = scrape_letterboxd_in_parallel(user_id)  
+    # This is the data with the current user's film_slug, film_id and rating
+    df = scrape_user_ratings_pages_in_parallel(user_string)  
 
-    # Assign a unique numeric ID to the user if not already assigned
-    if user_id not in user_id_mapping:
-        user_id_mapping[user_id] = len(user_id_mapping) + 1  
+    if df.empty:
+        print(f"No ratings found for {user_string}. Skipping.")
+        return None, {}, user_id_map, max_user_id
 
-    numeric_user_id = user_id_mapping[user_id]  # Retrieve assigned numeric ID
+    # Update the user_id_mapping with the current user_id
+    with max_user_id_lock: # This is just a variable which ensures that user_ids are mapped correctly even with concurrent threads
+        if user_string not in user_id_map:
+            max_user_id = max(user_id_map.values(), default=0) + 1 
+            user_id_map[user_string] = max_user_id #Assign the new user_id as one more than the current max user_id
+            print(f"DEBUG: Assigned user {user_string} -> ID {max_user_id}")
 
-    # Local dictionary to store new film mappings (prevents thread collisions)
+    #Extract the assigned user_id 
+    numeric_user_id = user_id_map[user_string] # (This is here in case the user_id was already in the mapping in which case the max_user_id variable above wouldn't be assigned)
+
+    # Create a dataframe with id values instead of strings
+    df_encoded_values = df[["film_id", "rating"]].copy()
+    df_encoded_values.insert(0, "user_id", numeric_user_id)
+
+    # Update the film_id_mapping with any new film_id and film_slug pairs
     new_film_mappings = {}
+    for _, row in df[["film_id", "film_slug"]].drop_duplicates().iterrows(): #Iterate through all unique film_ids of the current user
+        film_id = row["film_id"]
+        slug = row["film_slug"]
+        if film_id not in film_id_map: #If there is a new film_id, assign the id/slug pair to the mapping file
+            new_film_mappings[film_id] = slug
+    
+    return df_encoded_values, new_film_mappings, user_id_map, max_user_id
 
-    # Process film mappings safely
-    for _, row in df.iterrows():
-        film_id, film_title = row["film_id"], row["film_title"]
-
-        if film_id not in film_id_mapping:  # If film is not already mapped, store it
-            new_film_mappings[film_id] = film_title
-
-    # Prepare processed DataFrame with numeric user_id, film_id, and rating
-    df_processed = df[["film_id", "rating"]].copy()
-    df_processed.insert(0, "user_id", numeric_user_id)  # Add numeric user_id as first column
-
-    return df_processed, new_film_mappings, user_id_mapping
-
-
-def save_final_data(combined_ratings, film_id_to_title, user_id_mapping, output_dir="."):
+def fetch_all_user_data(users, user_id_mapping, max_user_id):
     """
-    Saves the final dataset in both translated and untranslated formats.
+    Processes the ratings data of a specified set of users in parallel.
+    All usernames and film IDs are assigned unique numeric IDs, and the mappings for the current batch of users are also outputted with the encoded ratings data.
 
-    Arguments:
-    - combined_ratings (DataFrame): The DataFrame containing user_id, film_id, and ratings.
-    - film_id_to_title (dict): Dictionary mapping film_id → film_title.
-    - user_id_mapping (dict): Dictionary mapping username → numeric user_id.
-    - output_dir (str): Directory to store the output files (default is current directory).
-    """
-
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Save raw (untranslated) ratings data
-    raw_path = os.path.join(output_dir, "raw_user_ratings.csv")
-    combined_ratings.to_csv(raw_path, index=False)
-    print(f"\nRaw user ratings saved to {os.path.abspath(raw_path)}")
-
-    # Translate film IDs to film titles
-    combined_ratings["film_title"] = combined_ratings["film_id"].map(film_id_to_title)
-
-    # Reverse dictionary: Convert numeric user IDs back to usernames
-    user_id_to_name_reversed = {v: k for k, v in user_id_mapping.items()}
-    combined_ratings["username"] = combined_ratings["user_id"].map(user_id_to_name_reversed)
-
-    # Save translated ratings data
-    translated_path = os.path.join(output_dir, "translated_user_ratings.csv")
-    translated_data = combined_ratings[["username", "film_title", "rating"]]
-    translated_data.to_csv(translated_path, index=False)
-    print(f"\nTranslated user ratings saved to {os.path.abspath(translated_path)}")
-
-    # Save the mapping dictionaries
-    film_mappings_path = os.path.join(output_dir, "film_mappings.csv")
-    user_mappings_path = os.path.join(output_dir, "user_mappings.csv")
-
-    pd.DataFrame(list(film_id_to_title.items()), columns=["film_id", "film_title"]).to_csv(film_mappings_path, index=False)
-    pd.DataFrame(list(user_id_mapping.items()), columns=["username", "numeric_user_id"]).to_csv(user_mappings_path, index=False)
-
-    print(f"\nFilm ID mappings saved to {os.path.abspath(film_mappings_path)}")
-    print(f"\nUser ID mappings saved to {os.path.abspath(user_mappings_path)}")
-
-
-def fetch_all_user_data(users):
-    """
-    Fetches and combines movie rating data for multiple users.
-
-    Arguments:
-    - users (list): A list of Letterboxd usernames to fetch data for.
-    - parallel (bool): Whether to process users in parallel.
+    Args:
+        users (list[str]): List of Letterboxd usernames to process.
+        user_id_mapping (dict[str, int]): Existing dictionary mapping username → numeric user ID. 
+                                            (Required so new user ids aren't assigned already existing user ids)
+                                            (The existing film_id map isn't required as we're pulling the already assigned ids from letterboxd)
+        max_user_id (int): Current highest numeric user ID assigned so far.
 
     Returns:
-    - combined_ratings (DataFrame): A merged DataFrame with (user_id, film_id, rating).
-    - film_id_to_title (dict): A dictionary mapping film_id → film_title.
-    - user_id_mapping (dict): A dictionary mapping username → numeric user_id.
+        combined_user_ratings_df (pd.DataFrame): Concatenated DataFrame containing all user ratings from the batch with columns ['user_id', 'film_id', 'rating'].
+        film_id_to_title (dict[str, str]): Dictionary mapping film_id → film_title (slug) for all films encountered in the batch.
+        user_id_mapping (dict[str, int]): Updated mapping of usernames to numeric user IDs, reflecting any new users added.
+        max_user_id (int): Updated maximum numeric user ID after processing the batch.
     """
 
-    all_ratings = []  # Stores all users' ratings
-    film_id_to_title = {}  # Maps film_id → film_title
-    user_id_mapping = {}  # Maps username → numeric user_id
+    # === SETUP ===
+    all_user_ratings_set = []  # Stores a set of all individual user ratings
+    film_id_to_title = {}  # Maps film_id → film_title. Start empty, this will build up the full map for the current users
+    max_user_id_lock = threading.Lock()  # Thread lock for safe ID increment
 
     start_time = time.time()
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(process_user_data, user, user_id_mapping, film_id_to_title): user for user in users}
+    # === SCRAPE USER DATA IN PARALLEL ===
 
-        for future in as_completed(futures):
-            user_id = futures[future]
+    with ThreadPoolExecutor(max_workers=5) as executor: #Parallel processing with 5 worker threads
+        futures_dict = {} #This maintains a map between submitted tasks and the user_ids associated with them.
+
+        # === SUBMIT USER SCRAPING TASKS ===
+        for user in users:
+
+            # Submit a function for the current user to start running in the background
+            future = executor.submit(scrape_and_encode_user_ratings,user,user_id_mapping,film_id_to_title,max_user_id_lock)
+            
+            #Store this future object in the futures dictionary so we know what data it corresponds to whenever it finishes
+            futures_dict[future] = user  
+
+        # === PROCESS COMPLETED TASKS ===
+        #As each submitted task finishes, process its result
+        for future in as_completed(futures_dict):
+            user_id = futures_dict[future] #Pull the associated user_id for the latest completed task
             try:
-                df, new_film_mappings, updated_user_mapping = future.result()
+                current_user_df, new_film_mappings, updated_user_mapping, new_max_user_id = future.result() #Try extract the results from the scraping task
                 
-                if df is not None:
-                    all_ratings.append(df)  # Append processed ratings DataFrame
+                if current_user_df is not None:
                     
-                    # Safely update global film mapping dictionary
+                    # Append processed ratings to the set of processed ratings
+                    all_user_ratings_set.append(current_user_df) 
+
+                    # Update mappings for this batch of users 
                     film_id_to_title.update(new_film_mappings)
-                    
-                    # Update user mapping dictionary
-                    user_id_mapping.update(updated_user_mapping)  
-                    
+                    user_id_mapping.update(updated_user_mapping)
+
+                    # Update max_user_id globally
+                    max_user_id = max(max_user_id, new_max_user_id)
+
             except Exception as e:
                 print(f"Error processing {user_id}: {e}")
 
-    # Combine all user rating data into a single DataFrame
-    combined_ratings = pd.concat(all_ratings, ignore_index=True) if all_ratings else pd.DataFrame(columns=["user_id", "film_id", "rating"])
+    # === OUTPUTTING CORRECT DATA ===
 
-    print("\nFinal Combined Ratings DataFrame (First 5 Rows):")
-    print(combined_ratings.head())
+    #Combining the individual user ratings into a single DataFrame
+    combined_user_ratings_df = pd.concat(all_user_ratings_set, ignore_index=True) if all_user_ratings_set else pd.DataFrame(columns=["user_id", "film_id", "rating"])
 
+    #Printing the number of users processed and the time taken
     end_time = time.time()
     print(f"\nProcessed {len(users)} users in {end_time - start_time:.2f} seconds.")
 
-    save_final_data(combined_ratings, film_id_to_title, user_id_mapping)
-
-    return combined_ratings, film_id_to_title, user_id_mapping
-
-
-
-
-
+    return combined_user_ratings_df, film_id_to_title, user_id_mapping, max_user_id  
