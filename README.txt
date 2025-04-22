@@ -34,7 +34,7 @@ Installation Instructions
 ########################################################################################
 
 Clone the repository:
-git clone https://github.com/ma7cus/pulling_training_data.git
+git clone https://github.com/ma7cus/scraping_letterboxd_ratings_data.git
 
 Navigate to the project directory:
 cd pulling_training_data
