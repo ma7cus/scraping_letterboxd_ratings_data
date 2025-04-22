@@ -188,4 +188,4 @@ def run_full_batch_scraping_method(num_batches: int, batch_size: int, mode: str 
 
 if __name__ == "__main__":
     mode = "continue"  # Set to "new" to start from scratch
-    run_full_batch_scraping_method(num_batches=2, batch_size=2, mode=mode)
+    run_full_batch_scraping_method(num_batches=1, batch_size=20, mode=mode)

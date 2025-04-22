@@ -27,7 +27,7 @@ Features
 - Lookup tables for readable usernames and film titles
 - Translated ratings output for human-readable exploration
 - Optional versioning of raw data outputs
-- Safe test mode for trial runs without overwriting production files
+- Safe test mode for trial runs without overwriting production filesgit
 
 ########################################################################################
 Installation Instructions
