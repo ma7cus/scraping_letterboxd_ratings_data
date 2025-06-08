@@ -26,6 +26,8 @@ def scrape_and_encode_user_ratings(user_string, user_id_map, film_id_map, max_us
     - max_user_id (int): Updated maximum numeric user ID.
     """
 
+    max_user_id = max(user_id_map.values(), default=0)
+
     # Fetch user ratings from Letterboxd
     # This is the data with the current user's film_slug, film_id and rating
     df = scrape_user_ratings_pages_in_parallel(user_string)  
@@ -39,7 +41,6 @@ def scrape_and_encode_user_ratings(user_string, user_id_map, film_id_map, max_us
         if user_string not in user_id_map:
             max_user_id = max(user_id_map.values(), default=0) + 1 
             user_id_map[user_string] = max_user_id
-            print(f"DEBUG: Assigned user {user_string} -> ID {max_user_id}")
         else:
             max_user_id = max(user_id_map.values(), default=0)  # Ensure it is always defined
 
@@ -114,6 +115,8 @@ def fetch_all_user_data(users, user_id_mapping, max_user_id):
                 
                 if current_user_df is not None:
                     
+                    print(f"[User] Success: {user_id} ({len(current_user_df)} ratings)")
+
                     # Append processed ratings to the set of processed ratings
                     all_user_ratings_set.append(current_user_df) 
 
@@ -123,6 +126,8 @@ def fetch_all_user_data(users, user_id_mapping, max_user_id):
 
                     # Update max_user_id globally
                     max_user_id = max(max_user_id, new_max_user_id)
+                else:
+                    print(f"[User] Skipped: {user_id} (no valid ratings)")
 
             except Exception as e:
                 print(f"Error processing {user_id}: {e}")
@@ -134,6 +139,6 @@ def fetch_all_user_data(users, user_id_mapping, max_user_id):
 
     #Printing the number of users processed and the time taken
     end_time = time.time()
-    print(f"\nProcessed {len(users)} users in {end_time - start_time:.2f} seconds.")
+    print(f"\nBatch complete: processed {len(users)} users in {end_time - start_time:.2f} seconds.")
 
     return combined_user_ratings_df, film_id_to_title, user_id_mapping, max_user_id  

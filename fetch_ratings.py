@@ -123,6 +123,9 @@ def scrape_user_ratings_pages_in_parallel(username, max_workers=5, batch_size=5)
     page_number = 1 
     film_data = []  # List to store all scraped films
 
+    total_pages = 0
+    total_films = 0
+
     # Use a persistent session to reuse HTTP connections (reduces network overhead)
     session = requests.Session()
 
@@ -136,7 +139,6 @@ def scrape_user_ratings_pages_in_parallel(username, max_workers=5, batch_size=5)
             # This loop submits up to `batch_size` requests at once
             for _ in range(batch_size):
                 url = f"{base_url}page/{page_number}/"  # Construct the URL for the current page
-                print(f"Fetching page {page_number}: {url}")  # Log the current page being fetched
                 future = executor.submit(scrape_user_ratings_page, session, url)  # Submit request to run in parallel
                 futures[future] = page_number  # Store the future along with its corresponding page number
                 page_number += 1  # Move to the next page
@@ -149,10 +151,10 @@ def scrape_user_ratings_pages_in_parallel(username, max_workers=5, batch_size=5)
                 page_result = future.result()  # Retrieve the data from the completed request
 
                 if page_result:  # If the page contains films
-                    print(f"Page {futures[future]} returned {len(page_result)} films.")
                     film_data.extend(page_result)  # Append the films to the main dataset
+                    total_pages += 1
+                    total_films += len(page_result)
                 else:
-                    print(f"Page {futures[future]} returned no films.")
                     empty_pages += 1  # Count empty pages to determine stopping condition
 
             # ===================== STAGE 3: CHECK FOR END OF PAGINATION =====================
@@ -168,7 +170,6 @@ def scrape_user_ratings_pages_in_parallel(username, max_workers=5, batch_size=5)
     # Print summary of execution time and number of films processed
     end_time = time.time()
     total_time = end_time - start_time
-    print(f"\nProcessed {len(film_data)} films in {total_time:.2f} seconds using {max_workers} threads.")
 
     return df
 
