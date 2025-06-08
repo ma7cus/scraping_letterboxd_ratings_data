@@ -1,138 +1,135 @@
-########################################################################################
 Letterboxd Ratings Scraper and Mapper
-########################################################################################
+=====================================
 
-########################################################################################
-Project Description
-########################################################################################
-This project scrapes popular Letterboxd user ratings and builds a cumulative dataset that maps user IDs and film IDs to readable names. 
-It generates both raw and translated data files, as well as lookup tables for users and films. 
-The scraping is done in batches with threading for speed and resilience. 
-The result is a ready-to-use dataset for analytics or recommendation systems.
+This project scrapes user rating data from Letterboxd and compiles it into a structured dataset. It supports incremental updates, numeric ID mapping, and translation into human-readable formats. It is suitable for use in recommendation systems, statistical analysis, or exploratory data work.
 
-########################################################################################
-Important Note
-########################################################################################
-This script fetches data from Letterboxd’s web pages using scraping techniques. 
-As such, it is susceptible to HTML structure changes or rate limiting. 
-It uses retry logic with exponential backoff to avoid hitting the server too aggressively. 
-Be mindful not to overload Letterboxd’s site or violate their terms of use.
+Overview
+--------
 
-########################################################################################
-Features
-########################################################################################
+The scraper targets popular Letterboxd users and retrieves their film rating history, saving the data in both raw ID-based and translated readable formats.
 
-- Batch scraping of popular Letterboxd users
-- Encoded user and film IDs for efficient storage
-- Lookup tables for readable usernames and film titles
-- Translated ratings output for human-readable exploration
-- Optional versioning of raw data outputs
-- Safe test mode for trial runs without overwriting production filesgit
+- Assigns consistent numeric IDs to users and films
+- Maintains mapping tables and update logs to allow incremental refreshes
+- Multi-threaded design for efficient batch scraping
+- Modular structure for testing and reuse
+- Scraping relies on the current HTML structure of Letterboxd pages. This is a known point of failure and may require updates if the structure changes.
 
-########################################################################################
-Installation Instructions
-########################################################################################
-
-Clone the repository:
-git clone https://github.com/ma7cus/scraping_letterboxd_ratings_data.git
-
-Navigate to the project directory:
-cd pulling_training_data
-
-Install the required dependencies:
-pip install beautifulsoup4 pandas requests
-
-########################################################################################
-Usage Instructions
-########################################################################################
-
-To run the script and fetch user rating data:
-
-- Open `compile_training_data.py`
-- At the bottom, set the mode to `"new"` or `"continue"` depending on your goal:
-  - `"new"` starts a fresh run and clears the output files
-  - `"continue"` resumes from existing user mappings and ratings
-
-Then run:
-python compile_training_data.py
-
-########################################################################################
-Input Data
-########################################################################################
-
-This project requires no input from the user initially — it starts from scratch using Letterboxd’s publicly available pages of popular users.
-
-However, it maintains and updates the following files:
-
-- `latest_raw_user_ratings.csv`: Encoded user/film/rating values
-- `latest_user_mappings.csv`: Maps usernames to numeric user IDs
-- `latest_film_mappings.csv`: Maps film IDs to slugs/titles
-- `latest_user_updates.csv`: Timestamp of last scrape per user
-
-These are automatically read and updated on each run.
-
-########################################################################################
-Output Data
-########################################################################################
-
-The following CSV files are generated or updated after each batch:
-
-- `latest_raw_user_ratings.csv`: Encoded ratings data
-- `raw_user_ratings_<timestamp>.csv`: Timestamped backup of that batch
-- `latest_translated_user_ratings.csv`: Ratings with usernames and film titles
-- `latest_film_mappings.csv`: Film ID → slug/title
-- `latest_user_mappings.csv`: Username → numeric ID
-- `latest_user_updates.csv`: Last update timestamp per user
-
-All files are saved to the output directory specified in `config.py`.
-
-########################################################################################
 Directory Structure
-########################################################################################
+-------------------
 
-.
-├── compile_training_data.py               # Main orchestration script
-├── config.py                              # Contains all file paths and flags
-├── fetch_ratings.py                       # Handles HTML requests and retry logic
-├── read_in_data.py                        # Handles scraping and parallel processing
-├── load_save_and_translate_data.py        # Manages translations and saves
-├── requirements.txt                       # Project dependencies
+Project files:
 
-########################################################################################
-Config Overview
-########################################################################################
+    .
+    ├── compile_training_data.py             # Main batch scraping pipeline
+    ├── generate_user_data.py                # Standalone script to scrape one user
+    ├── config.py                            # Paths, filenames, switches
+    ├── fetch_ratings.py                     # Core scraping logic
+    ├── read_in_data.py                      # Batch scraping and encoding
+    ├── load_save_and_translate_data.py      # Mappings, translation, file reading in/out
+    ├── data_output/                         # Output folder for structured data
+    └── .gitignore                           # Excludes generated data from version control
 
-The `config.py` file holds the paths and file names used throughout the project.
+Output directory:
 
-KEY FLAGS:
-- `TEST_MODE`: If True, all files are saved in the `test_output` directory
+    data_output/
+    ├── training/
+    │   ├── latest_raw_user_ratings.csv
+    │   └── latest_translated_user_ratings.csv
+    ├── mappings/
+    │   ├── latest_user_mappings.csv
+    │   ├── latest_film_mappings.csv
+    │   └── latest_user_updates.csv
+    └── users/
+        ├── user_<username>_raw.csv
+        └── user_<username>_translated.csv
 
-FILENAME DEFINITIONS:
-- `RAW_RATINGS_FILENAME`: The latest encoded user ratings (overwritten every run)
-- `TRANSLATED_RATINGS_FILENAME`: Ratings translated to usernames and film titles
-- `USER_MAPPINGS_FILENAME`: Maps usernames to numeric IDs
-- `FILM_MAPPINGS_FILENAME`: Maps film IDs to titles/slugs
-- `USER_UPDATE_LOG_FILENAME`: Stores timestamps of last scraped users
+Process Description
+-------------------
 
-These are combined with the output directory (`OUTPUT_DIR`) to define input/output paths. Changing a filename here will change which file the program reads from and writes to.
+1. Scraping
 
-########################################################################################
-Workflow Summary
-########################################################################################
+    - Usernames are pulled from Letterboxd’s "Popular Members" pages.
+    - Each user's film rating history is scraped using multi-threaded HTTP requests.
+    - The following are extracted:
+        - film_id (Letterboxd internal ID)
+        - film_slug (URL-style title)
+        - rating (converted from "★★½" format to a numeric float)
 
-1. Scrape N new users from Letterboxd’s popular members page.
-2. Scrape ratings for each user using multithreading (5 workers).
-3. Assign each user a numeric ID (reused if already known).
-4. For each film, extract its ID and slug. Save new ones to the film mapping.
-5. Store all ratings in `latest_raw_user_ratings.csv` with optional versioning.
-6. Translate these into human-readable ratings with usernames and titles.
-7. Update `film_mappings.csv` and `user_mappings.csv` accordingly.
-8. Save the last scraped date for each user in `user_last_updated.csv`.
+2. Encoding
 
-All mappings and the translated ratings are overwritten with each batch — only the raw ratings file has optional versioning.
+    - Each username is assigned a unique numeric user ID.
+    - Each film is similarly tracked by a film ID and mapped to a readable slug.
+    - User and film mappings are validated to prevent ID collisions or inconsistencies.
 
-########################################################################################
-Contact
-########################################################################################
+3. Output
 
-For questions or suggestions, contact Marcus at marcusb196@outlook.com
+    - Saves raw and translated ratings to CSV
+    - Updates mappings and update logs
+    - Optionally creates timestamped backup versions of the raw data if versioning is enabled
+
+Configuration
+-------------
+
+All configuration is handled through `config.py`.
+
+Key options:
+
+    TEST_MODE: When set to True, writes output to a sandboxed directory (`data_output/test/`)
+    VERSIONING_TOGGLE: If True, raw ratings are saved with a timestamp as well as overwriting the latest version
+
+Running the Code
+----------------
+
+A. Batch Scraping (compile_training_data.py)
+
+Use this for large-scale data collection.
+
+    python compile_training_data.py
+
+You can configure batch size and number of batches within the script:
+
+    mode = "new"  # or "continue"
+    run_full_batch_scraping_method(num_batches=2, batch_size=10, mode=mode)
+
+- Use `mode="new"` to start fresh (clears previous user IDs and mappings)
+- Use `mode="continue"` to append to the existing dataset
+
+B. Single User Scraping (generate_user_data.py)
+
+Use this for targeted scraping or testing output structure.
+
+    python generate_user_data.py
+
+Edit the following line to change the target user:
+
+    user_name = "ma7cus"
+
+Limitations
+-----------
+
+- The scraper depends on the HTML structure of Letterboxd's website. If the structure changes, the scraping logic may fail and will need updating.
+- There is no public Letterboxd API for this data; scraping is used as a fallback.
+- Although backoff logic is implemented, repeated access may result in throttling or temporary blocks.
+- Films are identified by `data-film-id`, which must remain consistent to ensure data integrity.
+
+Output Examples
+---------------
+
+Raw (numeric IDs):
+
+    user_id,film_id,rating
+    1,104387,4.0
+    1,118156,3.5
+
+Translated (readable labels):
+
+    username,film_title,rating
+    ma7cus,interstellar,4.0
+    ma7cus,arrival,3.5
+
+
+Legal and Ethical Use
+----------------------
+
+This project is for research and educational purposes only. Respect the Letterboxd [terms of service](https://letterboxd.com/legal/terms/) and avoid excessive automated traffic.
+

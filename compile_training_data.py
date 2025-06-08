@@ -191,5 +191,5 @@ def run_full_batch_scraping_method(num_batches: int, batch_size: int, mode: str 
         save_user_update_log(update_log)
 
 if __name__ == "__main__":
-    mode = "new"  # Set to "new" to start from scratch
+    mode = "new"  # Set to "new" to start from scratch or "continue" to append to existing data
     run_full_batch_scraping_method(num_batches=2, batch_size=10, mode=mode)
