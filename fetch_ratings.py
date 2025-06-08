@@ -49,15 +49,15 @@ def scrape_user_ratings_page(session, url):
     try:
         response = session.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
-            print(f"❌ HTTP {response.status_code} from {url}")
+            print(f"HTTP {response.status_code} from {url}")
             return None
     except Exception as e:
-        print(f"❌ Exception fetching {url}: {e}")
+        print(f"Exception fetching {url}: {e}")
         return None
 
     # Check for suspiciously short HTML
     if len(response.content) < 5000:
-        print(f"⚠️ Warning: very short HTML content from {url}. May be blocked or throttled.")
+        print(f" Warning: very short HTML content from {url}. May be blocked or throttled.")
 
     # Parse the returned HTML content
     soup = BeautifulSoup(response.content, 'html.parser')

@@ -1,5 +1,6 @@
 import threading
 import pandas as pd
+import os
 
 from read_in_data import scrape_and_encode_user_ratings
 from load_save_and_translate_data import (
@@ -12,7 +13,7 @@ from load_save_and_translate_data import (
 from config import (
     USER_MAPPINGS_PATH,
     FILM_MAPPINGS_PATH,
-    USER_UPDATE_LOG_PATH,
+    USER_OUTPUT_DIR
 )
 
 def generate_user_data(username):
@@ -61,19 +62,21 @@ def generate_user_data(username):
 
     # === Save the raw ratings file ===
     # This file uses numeric IDs (for consistency and anonymisation)
-    raw_path = f"user_{username}_raw.csv"
     df_encoded.drop_duplicates(subset=["user_id", "film_id"], inplace=True)
+    raw_path = os.path.join(USER_OUTPUT_DIR, f"user_{username}_raw.csv")
     df_encoded.to_csv(raw_path, index=False)
     print(f"Saved raw user ratings to {raw_path} ({len(df_encoded)} rows)")
+
 
     # === Update mappings and translate the raw file ===
     film_id_mapping.update(new_film_mappings)  # Add any new film mappings found during scraping
     translated_df = translate_ratings_dataframe(df_encoded, user_id_mapping, film_id_mapping) #Use the updated mappings to translate the numeric IDs back to readable names
 
     # Save the translated file
-    translated_path = f"user_{username}_translated.csv"
-    translated_df.to_csv(f"user_{username}_translated.csv", index=False)
-    print(f"Saved translated user ratings as {translated_path}")
+    raw_path = os.path.join(USER_OUTPUT_DIR, f"user_{username}_raw.csv")
+    translated_path = os.path.join(USER_OUTPUT_DIR, f"user_{username}_translated.csv")
+    translated_df.to_csv(translated_path, index=False)
+    print(f"Saved translated user ratings to {translated_path}")
 
     # === Update log of user updates ===
     # Log today's date as the most recent update for this user

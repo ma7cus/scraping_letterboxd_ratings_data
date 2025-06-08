@@ -5,6 +5,8 @@ from fetch_ratings import scrape_user_ratings_pages_in_parallel
 import os
 import time
 import threading
+from config import USER_MAPPINGS_PATH, FILM_MAPPINGS_PATH
+
 
 def scrape_and_encode_user_ratings(user_string, user_id_map, film_id_map, max_user_id_lock):
     """
@@ -57,8 +59,8 @@ def scrape_and_encode_user_ratings(user_string, user_id_map, film_id_map, max_us
         if film_id in film_id_map: #Check if the film_id already exists in the mapping
             if film_id_map[film_id] != slug: # If it does, check if the slug matches the existing mapping
                 raise ValueError(f"Film ID collision: {film_id} maps to both '{film_id_map[film_id]}' and '{slug}'") # If it doesn't match, raise an error to avoid ID collisions
-            else:
-                new_film_mappings[film_id] = slug #If there are no issues and there is a new mapping, add it to the new_film_mappings dictionary
+        else:
+            new_film_mappings[film_id] = slug #If there are no issues and there is a new mapping, add it to the new_film_mappings dictionary
 
     
     return df_encoded_values, new_film_mappings, user_id_map, max_user_id

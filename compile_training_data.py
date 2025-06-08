@@ -8,7 +8,7 @@ from read_in_data import fetch_all_user_data
 from load_save_and_translate_data import load_existing_users, load_user_update_log, save_final_data, save_user_update_log, load_existing_film_mappings
 from requests.exceptions import RequestException
 from config import (
-    RAW_RATINGS_PATH,
+    TRAINING_RAW_RATINGS_PATH,
     VERSIONING_TOGGLE,
     HEADERS
 )
@@ -148,7 +148,7 @@ def run_full_batch_scraping_method(num_batches: int, batch_size: int, mode: str 
     else:
         print(f"Resuming from max user ID {max_user_id}")
         # Load existing raw ratings if available, otherwise create an empty one
-        current_users_ratings_df = pd.read_csv(RAW_RATINGS_PATH) if os.path.exists(RAW_RATINGS_PATH) else pd.DataFrame(columns=["user_id", "film_id", "rating"])
+        current_users_ratings_df = pd.read_csv(TRAINING_RAW_RATINGS_PATH) if os.path.exists(TRAINING_RAW_RATINGS_PATH) else pd.DataFrame(columns=["user_id", "film_id", "rating"])
         film_id_to_title = load_existing_film_mappings()   
 
     # === STAGE 3: Process batches of new users ===

@@ -10,8 +10,9 @@ from config import (
     TRANSLATED_RATINGS_PREFIX,
     USER_MAPPINGS_PREFIX,
     FILM_MAPPINGS_PREFIX,
-    USER_UPDATE_LOG_PATH,
+    USER_UPDATE_LOG_PATH
 )
+
 
 def load_existing_users():
     """
