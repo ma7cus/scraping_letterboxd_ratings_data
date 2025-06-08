@@ -29,18 +29,27 @@ def load_existing_users():
         return set(), {}, 0
 
     try:
-
-        #Read in the user mapping file
         df_user_ids = pd.read_csv(input_path)
 
-        #Check if the user mapping file is empty or missing required columns
-        if df_user_ids.empty or "numeric_user_id" not in df_user_ids.columns or "username" not in df_user_ids.columns:
-            print("User mapping file is empty or missing required columns.")
-            return set(), {}, 0
+        # Ensure expected columns are present
+        expected_cols = {"username", "numeric_user_id"}
+        if not expected_cols.issubset(df_user_ids.columns):
+            raise ValueError(f"User mapping file must contain columns: {expected_cols}")
 
-        #Drop any rows with missing values in the username or numeric_user_id columns and convert the numeric_user_id column to integers
+        # Drop rows with missing values
         df_user_ids = df_user_ids.dropna(subset=["username", "numeric_user_id"])
-        df_user_ids["numeric_user_id"] = df_user_ids["numeric_user_id"].astype(int)
+
+        # Check for duplicate keys
+        if df_user_ids["numeric_user_id"].duplicated().any():
+            raise ValueError("Duplicate numeric_user_id values found in user mapping.")
+        if df_user_ids["username"].duplicated().any():
+            raise ValueError("Duplicate usernames found in user mapping.")
+
+        # Convert IDs to int type
+        try:
+            df_user_ids["numeric_user_id"] = df_user_ids["numeric_user_id"].astype(int)
+        except Exception as e:
+            raise TypeError(f"Could not cast numeric_user_id to int: {e}")
 
         #Convert the dataframe to a dictionary mapping usernames to numeric user IDs
         user_id_mapping = dict(zip(df_user_ids["username"], df_user_ids["numeric_user_id"]))
@@ -56,10 +65,23 @@ def load_existing_users():
         return set(), {}, 0
 
 def load_existing_film_mappings():
-    if os.path.exists(FILM_MAPPINGS_PATH):
+    if not os.path.exists(FILM_MAPPINGS_PATH):
+        return {}
+
+    try:
         df = pd.read_csv(FILM_MAPPINGS_PATH)
+
+        expected_cols = {"film_id", "film_title"}
+        if not expected_cols.issubset(df.columns):
+            raise ValueError(f"Film mapping must contain columns: {expected_cols}")
+
+        if df["film_id"].isnull().any() or df["film_title"].isnull().any():
+            raise ValueError("Film mapping contains null film_id or film_title")
+
         return dict(zip(df["film_id"].astype(str), df["film_title"]))
-    return {}
+
+    except Exception as e:
+        raise RuntimeError(f"Error reading film mapping: {e}")
 
 def load_user_update_log():
     """
@@ -68,10 +90,25 @@ def load_user_update_log():
     Returns:
         dict: Mapping from username → last update timestamp
     """
-    if os.path.exists(USER_UPDATE_LOG_PATH):
-        df = pd.read_csv(USER_UPDATE_LOG_PATH)
-        return dict(zip(df["username"], pd.to_datetime(df["last_updated"])))
-    return {}
+    if not os.path.exists(USER_UPDATE_LOG_PATH):
+        return {}
+
+    try:
+        df = pd.read_csv(USER_UPDATE_LOG_PATH, parse_dates=["last_updated"])
+
+        expected_cols = {"username", "last_updated"}
+        if not expected_cols.issubset(df.columns):
+            raise ValueError("Update log must contain 'username' and 'last_updated' columns")
+
+        if df["username"].isnull().any():
+            raise ValueError("Update log contains null usernames")
+        if df["last_updated"].isnull().any():
+            raise ValueError("Update log contains null or unparseable dates")
+
+        return dict(zip(df["username"], df["last_updated"]))
+
+    except Exception as e:
+        raise RuntimeError(f"Error reading update log: {e}")
 
 def save_user_update_log(update_log):
     """
@@ -112,6 +149,15 @@ def translate_ratings_dataframe(df, user_id_mapping, film_id_mapping):
     translated_df["username"] = translated_df["user_id"].map(user_id_to_name)
     translated_df["film_title"] = translated_df["film_id"].map(film_id_to_title)
 
+    #Check for unmapped user IDs and film IDs
+    user_ids_missing = set(translated_df["user_id"]) - set(user_id_to_name)
+    film_ids_missing = set(translated_df["film_id"]) - set(film_id_to_title)
+
+    if user_ids_missing:
+        raise ValueError(f"Unmapped user IDs encountered: {user_ids_missing}")
+    if film_ids_missing:
+        raise ValueError(f"Unmapped film IDs encountered: {film_ids_missing}")
+    
     # Return the translated view (reordering columns)
     return translated_df[["username", "film_title", "rating"]]
 

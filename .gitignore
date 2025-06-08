@@ -1,5 +1,10 @@
+# === Python bytecode and cache ===
 __pycache__/
 *.pyc
+
+# === User-generated CSVs and outputs ===
 *.csv
 data_output/
+
+# === Test script ===
 test.py

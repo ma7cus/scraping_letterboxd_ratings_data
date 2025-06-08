@@ -181,11 +181,15 @@ def run_full_batch_scraping_method(num_batches: int, batch_size: int, mode: str 
         if not batch_ratings.empty:
             current_users_ratings_df = pd.concat([current_users_ratings_df, batch_ratings], ignore_index=True)
 
+        
+        # Drop any duplicated rows from combined ratings
+        current_users_ratings_df.drop_duplicates(subset=["user_id", "film_id"], inplace=True)
+
         # === STAGE 5: Overwrite existing 'latest' files ===
         # This saves the updated data, mappings, and logs to CSV
         save_final_data(current_users_ratings_df, film_id_to_title, user_id_mapping, VERSIONING_TOGGLE)
         save_user_update_log(update_log)
 
 if __name__ == "__main__":
-    mode = "continue"  # Set to "new" to start from scratch
-    run_full_batch_scraping_method(num_batches=1, batch_size=20, mode=mode)
+    mode = "new"  # Set to "new" to start from scratch
+    run_full_batch_scraping_method(num_batches=2, batch_size=10, mode=mode)

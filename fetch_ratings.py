@@ -23,63 +23,81 @@ def scrape_user_ratings_page(session, url):
     """
     Parses a single Letterboxd 'watched films' page to extract film metadata.
 
-    Expects HTML structure like:
-    <li class="poster-container film-watched">
-        <div class="film-poster" data-film-slug="nosferatu-2024" data-film-id="35995" ...>
-        ...
-        <p class="poster-viewingdata">
-            <span class="rating rated-8">★★★★</span>
-        </p>
-    </li>
+    This function scrapes a Letterboxd user's watched films from a given URL. It looks for each
+    film block represented by <li class="poster-container"> and extracts:
+        - The film's unique slug (e.g., 'nosferatu-2024')
+        - The film's numeric ID
+        - The user's rating, as a float (e.g., 3.5 for ★★★½)
 
-    Extracts:
-    - film_slug (e.g. 'nosferatu-2024')
-    - film_id (e.g. '35995')
-    - rating (e.g. 4.0, converted from star symbols)
+    It specifically looks for ratings stored within:
+        <p class="poster-viewingdata">
+            <span class="rating rated-X">★★★½</span>
+        </p>
 
     Args:
-        session (requests.Session): Persistent HTTP session
-        url (str): URL of the film listing page
+        session (requests.Session): A persistent session object for HTTP reuse.
+        url (str): The URL of the Letterboxd page being scraped.
 
     Returns:
-        list[list]: List of [film_slug, film_id, rating] triples
-                    Returns None if the page is empty or invalid
-
+        list[list]: A list of [film_slug, film_id, rating] entries, or None if the page is empty.
     """
 
-    response = session.get(url)
+    headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+}
 
-    # If the page is invalid (e.g., non-existent), return None
-    if response.status_code != 200:
+    try:
+        response = session.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            print(f"❌ HTTP {response.status_code} from {url}")
+            return None
+    except Exception as e:
+        print(f"❌ Exception fetching {url}: {e}")
         return None
 
-    soup = BeautifulSoup(response.content, 'html.parser')
-    film_items = soup.find_all("li", class_="poster-container")
+    # Check for suspiciously short HTML
+    if len(response.content) < 5000:
+        print(f"⚠️ Warning: very short HTML content from {url}. May be blocked or throttled.")
 
-    # If no films are found on this page, return None (used to stop scraping)
+    # Parse the returned HTML content
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    # Find all list items that represent watched films
+    film_items = soup.find_all("li", class_=lambda c: c and "poster-container" in c)
+
+    # If there are no films, treat this as an empty page
     if not film_items:
         return None
 
-    page_film_data = []  # Store extracted films on this page
+    # This list will store [film_slug, film_id, rating] entries for this page
+    page_film_data = []
 
     for film in film_items:
+        # Extract the film's metadata from the 'film-poster' div
         film_poster_div = film.find("div", class_="film-poster")
-        rating_container = film.find("p", class_="poster-viewingdata")
+
+        # Look specifically for the span that contains the star rating
+        rating_span = film.find("span", class_="rating")
 
         if film_poster_div:
-            # Extract film name (unique slug) and film ID
-            film_name = film_poster_div.get("data-film-slug", "Unknown")
+            # Extract the slug and numeric ID from data attributes
+            film_slug = film_poster_div.get("data-film-slug", "Unknown")
             film_id = film_poster_div.get("data-film-id", "Unknown")
-            
-            # Extract rating and convert to numeric value
-            raw_rating = rating_container.text.strip() if rating_container else None
+
+            # Extract the visible star rating text (e.g., '★★★★½') and convert to a float
+            raw_rating = rating_span.text.strip() if rating_span else None
             numeric_rating = parse_rating(raw_rating) if raw_rating else None
 
-            # Append extracted data to this page's list if there is a valid rating associated
+            # If the rating is valid, record this film
             if numeric_rating is not None:
-                page_film_data.append([film_name, film_id, numeric_rating])
+                            page_film_data.append({
+                "film_slug": film_slug,
+                "film_id": film_id,
+                "rating": numeric_rating
+            })
 
-    return page_film_data  # Return extracted films for this page
+    return page_film_data
+
 
 def scrape_user_ratings_pages_in_parallel(username, max_workers=5, batch_size=5):
     """
@@ -118,6 +136,7 @@ def scrape_user_ratings_pages_in_parallel(username, max_workers=5, batch_size=5)
             # This loop submits up to `batch_size` requests at once
             for _ in range(batch_size):
                 url = f"{base_url}page/{page_number}/"  # Construct the URL for the current page
+                print(f"Fetching page {page_number}: {url}")  # Log the current page being fetched
                 future = executor.submit(scrape_user_ratings_page, session, url)  # Submit request to run in parallel
                 futures[future] = page_number  # Store the future along with its corresponding page number
                 page_number += 1  # Move to the next page
@@ -130,8 +149,10 @@ def scrape_user_ratings_pages_in_parallel(username, max_workers=5, batch_size=5)
                 page_result = future.result()  # Retrieve the data from the completed request
 
                 if page_result:  # If the page contains films
+                    print(f"Page {futures[future]} returned {len(page_result)} films.")
                     film_data.extend(page_result)  # Append the films to the main dataset
                 else:
+                    print(f"Page {futures[future]} returned no films.")
                     empty_pages += 1  # Count empty pages to determine stopping condition
 
             # ===================== STAGE 3: CHECK FOR END OF PAGINATION =====================
@@ -142,7 +163,7 @@ def scrape_user_ratings_pages_in_parallel(username, max_workers=5, batch_size=5)
     # Close the session to free up resources
     session.close()
 
-    df = pd.DataFrame(film_data, columns=["film_slug", "film_id", "rating"])
+    df = pd.DataFrame(film_data)
 
     # Print summary of execution time and number of films processed
     end_time = time.time()

@@ -33,11 +33,14 @@ def scrape_and_encode_user_ratings(user_string, user_id_map, film_id_map, max_us
         return None, {}, user_id_map, max_user_id
 
     # Update the user_id_mapping with the current user_id
-    with max_user_id_lock: # This is just a variable which ensures that user_ids are mapped correctly even with concurrent threads
+    with max_user_id_lock:
         if user_string not in user_id_map:
             max_user_id = max(user_id_map.values(), default=0) + 1 
-            user_id_map[user_string] = max_user_id #Assign the new user_id as one more than the current max user_id
+            user_id_map[user_string] = max_user_id
             print(f"DEBUG: Assigned user {user_string} -> ID {max_user_id}")
+        else:
+            max_user_id = max(user_id_map.values(), default=0)  # Ensure it is always defined
+
 
     #Extract the assigned user_id 
     numeric_user_id = user_id_map[user_string] # (This is here in case the user_id was already in the mapping in which case the max_user_id variable above wouldn't be assigned)
@@ -51,8 +54,12 @@ def scrape_and_encode_user_ratings(user_string, user_id_map, film_id_map, max_us
     for _, row in df[["film_id", "film_slug"]].drop_duplicates().iterrows(): #Iterate through all unique film_ids of the current user
         film_id = row["film_id"]
         slug = row["film_slug"]
-        if film_id not in film_id_map: #If there is a new film_id, assign the id/slug pair to the mapping file
-            new_film_mappings[film_id] = slug
+        if film_id in film_id_map: #Check if the film_id already exists in the mapping
+            if film_id_map[film_id] != slug: # If it does, check if the slug matches the existing mapping
+                raise ValueError(f"Film ID collision: {film_id} maps to both '{film_id_map[film_id]}' and '{slug}'") # If it doesn't match, raise an error to avoid ID collisions
+            else:
+                new_film_mappings[film_id] = slug #If there are no issues and there is a new mapping, add it to the new_film_mappings dictionary
+
     
     return df_encoded_values, new_film_mappings, user_id_map, max_user_id
 
